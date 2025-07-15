@@ -65,6 +65,8 @@ bool OIIOImageLoader::resolve_texture_cache(const bool auto_generate,
   }
 
   /* TODO: check if path_is_relative function properly handles things like network drives. */
+  /* TODO: add hash of full path to filename when using an absolute path, to avoid conflicts?
+   * Though this would not be portable? */
   const string tx_filename = path_filename(filepath) + ext;
   const string tx_filepath = path_join(path_is_relative(texture_cache_path) ?
                                            path_join(path_dirname(filepath), texture_cache_path) :

@@ -6,6 +6,7 @@
  * here, so for now we just put here. In the future it might be better
  * to have dedicated file for such tweaks.
  */
+#include "kernel/sample/lcg.h"
 #if (defined(__GNUC__) && !defined(__clang__)) && defined(NDEBUG)
 #  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #  pragma GCC diagnostic ignored "-Wuninitialized"
@@ -1173,7 +1174,7 @@ bool OSLRenderServices::texture(OSLUStringHash filename,
     case OSLTextureHandle::IMAGE: {
       const differential2 duv = {{dsdx, dtdx}, {dsdy, dtdy}};
       const float4 rgba = kernel_image_interp_with_udim(
-          kernel_globals, handle->id, make_float2(s, t), duv);
+          kernel_globals, sd, handle->id, make_float2(s, t), duv);
 
       result[0] = rgba[0];
       if (nchannels > 1) {

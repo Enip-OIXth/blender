@@ -223,10 +223,7 @@ ccl_device void volume_shadow_heterogeneous(KernelGlobals kg,
   shadow_path_state_rng_load(state, &rng_state);
 
   /* For stochastic texture sampling. */
-  sd->lcg_state = lcg_state_init(INTEGRATOR_STATE(state, shadow_path, rng_pixel),
-                                 INTEGRATOR_STATE(state, shadow_path, rng_offset),
-                                 INTEGRATOR_STATE(state, shadow_path, sample),
-                                 0xd9111870);
+  sd->lcg_state = integrator_state_lcg_init(state, PATH_RAY_SHADOW, 0xd9111870);
 
   Spectrum tp = *throughput;
 
@@ -997,10 +994,7 @@ ccl_device VolumeIntegrateEvent volume_integrate(KernelGlobals kg,
   path_state_rng_load(state, &rng_state);
 
   /* For stochastic texture sampling. */
-  sd.lcg_state = lcg_state_init(INTEGRATOR_STATE(state, path, rng_pixel),
-                                INTEGRATOR_STATE(state, path, rng_offset),
-                                INTEGRATOR_STATE(state, path, sample),
-                                0x15b4f88d);
+  sd.lcg_state = integrator_state_lcg_init(state, 0, 0x15b4f88d);
 
   /* Sample light ahead of volume stepping, for equiangular sampling. */
   /* TODO: distant lights are ignored now, but could instead use even distribution. */

@@ -229,6 +229,7 @@ using IntegratorState = IntegratorStateCPU *;
 using ConstIntegratorState = const IntegratorStateCPU *;
 using IntegratorShadowState = IntegratorShadowStateCPU *;
 using ConstIntegratorShadowState = const IntegratorShadowStateCPU *;
+using ConstIntegratorBakeState = const void *;
 
 #  define INTEGRATOR_STATE_NULL nullptr
 
@@ -248,6 +249,7 @@ using IntegratorState = int;
 using ConstIntegratorState = int;
 using IntegratorShadowState = int;
 using ConstIntegratorShadowState = int;
+using ConstIntegratorBakeState = int;
 
 #  define INTEGRATOR_STATE_NULL -1
 

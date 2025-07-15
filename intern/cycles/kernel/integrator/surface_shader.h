@@ -1150,6 +1150,9 @@ ccl_device void surface_shader_eval(KernelGlobals kg,
                                     const uint32_t path_flag,
                                     bool use_caustics_storage = false)
 {
+  /* Initialize additional RNG for BSDFs and image textures. */
+  sd->lcg_state = integrator_state_lcg_init(state, path_flag, 0xb4bc3953);
+
   /* If path is being terminated, we are tracing a shadow ray or evaluating
    * emission, then we don't need to store closures. The emission and shadow
    * shader data also do not have a closure array to save GPU memory. */
