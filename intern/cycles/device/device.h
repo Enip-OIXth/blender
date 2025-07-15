@@ -205,6 +205,8 @@ class Device {
       vector<ThreadKernelGlobalsCPU> & /*kernel_thread_globals*/);
   /* Get OpenShadingLanguage memory buffer. */
   virtual OSLGlobals *get_cpu_osl_memory();
+  /* Callback to load image tiles on demand. */
+  virtual void set_cpu_texture_cache_func(KernelImageLoadTileFunc /*func*/) {}
 
   /* Acceleration structure building. */
   virtual void build_bvh(BVH *bvh, Progress &progress, bool refit);

@@ -8,6 +8,7 @@
 
 #include "kernel/types.h"
 #include "kernel/util/profiler.h"
+#include <functional>
 
 #ifdef __OSL__
 #  include "kernel/osl/globals.h"
@@ -50,6 +51,8 @@ struct KernelGlobalsCPU {
 #include "kernel/data_arrays.h"
 
   KernelData data = {};
+
+  KernelImageLoadTileFunc image_load_tile;
 
   ProfilingState profiler;
 };

@@ -327,7 +327,9 @@ void GeometryManager::geom_calc_offset(Scene *scene, BVHLayout bvh_layout)
   }
 }
 
-void GeometryManager::device_update_preprocess(Device *device, Scene *scene, Progress &progress)
+void GeometryManager::device_update_preprocess(Device * /*device*/,
+                                               Scene *scene,
+                                               Progress &progress)
 {
   if (!need_update() && !need_flags_update) {
     return;

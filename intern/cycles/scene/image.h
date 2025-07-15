@@ -295,6 +295,12 @@ class ImageManager {
 
   void device_load_image_tiled(Scene *scene, const size_t slot);
   void device_update_image_requested(Device *device, Scene *scene, ImageSingle *img);
+  KernelTileDescriptor device_update_tile_requested(Device *device,
+                                                    Scene *scene,
+                                                    ImageSingle *img,
+                                                    const int miplevel,
+                                                    const size_t x,
+                                                    const size_t y);
 
   void device_load_image_full(Device *device, Scene *scene, const size_t slot);
   void device_load_image(Device *device, Scene *scene, const size_t slot, Progress &progress);
@@ -303,7 +309,7 @@ class ImageManager {
   void device_update_udims(Device *device, Scene *scene);
 
   void device_resize_image_textures(Scene *scene);
-  void device_copy_image_textures(Scene *scene);
+  void device_copy_image_textures(Device *device, Scene *scene);
 
   friend class ImageHandle;
 };

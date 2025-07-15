@@ -7,6 +7,10 @@
 #include "util/defines.h"
 #include "util/transform.h"
 
+#ifndef __KERNEL_GPU__
+#  include <functional>
+#endif
+
 CCL_NAMESPACE_BEGIN
 
 /* Color to use when images are not found. */
@@ -145,5 +149,10 @@ ccl_device_inline bool kernel_tile_descriptor_loaded(const KernelTileDescriptor 
 {
   return tile < KERNEL_TILE_LOAD_FAILED;
 }
+
+#ifndef __KERNEL_GPU__
+using KernelImageLoadTileFunc =
+    std::function<void(size_t, int, int, int, KernelTileDescriptor *tile_descriptor)>;
+#endif
 
 CCL_NAMESPACE_END

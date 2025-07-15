@@ -222,7 +222,7 @@ void Session::run_main_render_loop()
     }
 
     // TODO: better place for this
-    scene->image_manager->device_update_requested(device.get(), scene.get());
+    // scene->image_manager->device_update_requested(device.get(), scene.get());
 
     progress.set_update();
 

@@ -8,6 +8,7 @@
 
 #include "util/image.h"
 #include "util/string.h"
+#include "util/thread.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -48,6 +49,7 @@ class OIIOImageLoader : public ImageLoader {
   string original_filepath;
   string texture_cache_filepath;
   unique_ptr<ImageInput> filehandle;
+  thread_mutex mutex;
   bool filehandle_failed = false;
 };
 

@@ -55,6 +55,10 @@ CPUDevice::CPUDevice(const DeviceInfo &info_, Stats &stats_, Profiler &profiler_
   embree_device = rtcNewDevice("verbose=0");
 #endif
   need_image_info = false;
+
+  /* TODO: temporary hack to avoid having to resize this for on demand tile loading. */
+  image_info.resize(1024);
+  need_image_info = true;
 }
 
 CPUDevice::~CPUDevice()
@@ -319,6 +323,11 @@ OSLGlobals *CPUDevice::get_cpu_osl_memory()
 #else
   return nullptr;
 #endif
+}
+
+void CPUDevice::set_cpu_texture_cache_func(KernelImageLoadTileFunc func)
+{
+  kernel_globals.image_load_tile = func;
 }
 
 bool CPUDevice::load_kernels(const uint /*kernel_features*/)

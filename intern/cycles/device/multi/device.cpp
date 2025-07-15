@@ -295,6 +295,13 @@ class MultiDevice : public Device {
     return devices.back().device->get_cpu_osl_memory();
   }
 
+  void set_cpu_texture_cache_func(KernelImageLoadTileFunc func) override
+  {
+    for (SubDevice &sub : devices) {
+      sub.device->set_cpu_texture_cache_func(func);
+    }
+  }
+
   bool is_resident(device_ptr key, Device *sub_device) override
   {
     for (SubDevice &sub : devices) {

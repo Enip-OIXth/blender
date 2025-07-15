@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "scene/image.h"
+#include "atomic_ops.h"
 #include "scene/colorspace.h"
 #include "scene/image_oiio.h"
 #include "scene/image_vdb.h"
@@ -17,6 +18,7 @@
 #include "util/task.h"
 #include "util/texture.h"
 #include "util/types_base.h"
+#include <OpenImageIO/thread.h>
 
 CCL_NAMESPACE_BEGIN
 
@@ -703,7 +705,7 @@ void ImageManager::device_resize_image_textures(Scene *scene)
   }
 }
 
-void ImageManager::device_copy_image_textures(Scene *scene)
+void ImageManager::device_copy_image_textures(Device *device, Scene *scene)
 {
   image_cache.copy_to_device_if_modified();
 
@@ -713,6 +715,35 @@ void ImageManager::device_copy_image_textures(Scene *scene)
   dscene.image_textures.copy_to_device_if_modified();
   dscene.image_texture_tile_descriptors.copy_to_device_if_modified();
   dscene.image_texture_udims.copy_to_device_if_modified();
+
+  device->set_cpu_texture_cache_func(
+      /* This is called by the CPU kernel to immediately load a tile. */
+      /* TODO: resizing image_info is not thread safe for CPU rendering, there is
+       * a workaround in the CPUDevice constructor. */
+      /* TODO: drop file handle. */
+      [this, device, scene](
+          size_t slot, int miplevel, int x, int y, KernelTileDescriptor *tile_descriptor) {
+        /* If we can atomically set KERNEL_TILE_LOAD_REQUEST, this thread is responsible
+         * for loading the tile. */
+        KernelTileDescriptor tile_descriptor_old = *tile_descriptor;
+        if (tile_descriptor_old != KERNEL_TILE_LOAD_REQUEST &&
+            tile_descriptor_old ==
+                atomic_cas_uint32(tile_descriptor, tile_descriptor_old, KERNEL_TILE_LOAD_REQUEST))
+        {
+          KernelTileDescriptor tile_descriptor_new = device_update_tile_requested(
+              device, scene, images[slot].get(), miplevel, x, y);
+          /* TODO: this is inefficient, and with CPU + GPU rendering we only want to update CPU. */
+          image_cache.copy_to_device_if_modified();
+          *tile_descriptor = tile_descriptor_new;
+          return;
+        }
+
+        /* Wait for other thread to load the tile. */
+        OIIO::atomic_backoff backoff;
+        while (*tile_descriptor == KERNEL_TILE_LOAD_REQUEST) {
+          backoff();
+        }
+      });
 }
 
 void ImageManager::device_load_image_full(Device *device, Scene *scene, const size_t slot)
@@ -819,6 +850,72 @@ void ImageManager::device_load_image_tiled(Scene *scene, const size_t slot)
   }
 }
 
+KernelTileDescriptor ImageManager::device_update_tile_requested(Device *device,
+                                                                Scene *scene,
+                                                                ImageSingle *img,
+                                                                const int miplevel,
+                                                                const size_t x,
+                                                                const size_t y)
+{
+  const int width = divide_up(img->metadata.width, 1 << miplevel);
+  const int height = divide_up(img->metadata.height, 1 << miplevel);
+  const size_t tile_size = img->metadata.tile_size;
+  const size_t w = min(width - x, tile_size);
+  const size_t h = min(height - y, tile_size);
+  const size_t tile_size_padded = tile_size + KERNEL_IMAGE_TEX_PADDING * 2;
+
+  KernelTileDescriptor tile_descriptor;
+
+  device_image &mem = image_cache.alloc_tile(device,
+                                             img->metadata.type,
+                                             img->params.interpolation,
+                                             img->params.extension,
+                                             tile_size_padded,
+                                             tile_descriptor);
+
+  const size_t pixel_bytes = mem.data_elements * datatype_size(mem.data_type);
+  /* TODO: Handle case where channels > 4. */
+  const size_t x_stride = pixel_bytes;
+  const size_t y_stride = mem.data_width * pixel_bytes;
+  const size_t x_offset = kernel_tile_descriptor_offset(tile_descriptor) * tile_size_padded *
+                          pixel_bytes;
+
+  uint8_t *pixels = mem.data<uint8_t>() + x_offset;
+
+  /* TODO: opening file handles is not thread safe! */
+  const bool ok = img->loader->load_pixels_tile(img->metadata,
+                                                miplevel,
+                                                x,
+                                                y,
+                                                w,
+                                                h,
+                                                x_stride,
+                                                y_stride,
+                                                KERNEL_IMAGE_TEX_PADDING,
+                                                img->params.extension,
+                                                pixels);
+
+  conform_pixels_to_metadata(img,
+                             pixels,
+                             w + KERNEL_IMAGE_TEX_PADDING * 2,
+                             h + KERNEL_IMAGE_TEX_PADDING * 2,
+                             mem.data_elements,
+                             mem.data_width);
+
+  scene->dscene.image_texture_tile_descriptors.tag_modified();
+
+  if (ok) {
+    LOG_DEBUG << "Load image tile: " << img->loader->name() << ", mip level " << miplevel << " ("
+              << x << " " << y << ")";
+  }
+  else {
+    LOG_WARNING << "Failed to load image tile: " << img->loader->name() << ", mip level "
+                << miplevel << " (" << x << " " << y << ")";
+  }
+
+  return (ok) ? tile_descriptor : KERNEL_TILE_LOAD_FAILED;
+}
+
 void ImageManager::device_update_image_requested(Device *device, Scene *scene, ImageSingle *img)
 {
   const size_t tile_size = img->metadata.tile_size;
@@ -840,58 +937,7 @@ void ImageManager::device_update_image_requested(Device *device, Scene *scene, I
           continue;
         }
 
-        const size_t w = min(width - x, tile_size);
-        const size_t h = min(height - y, tile_size);
-        const size_t tile_size_padded = tile_size + KERNEL_IMAGE_TEX_PADDING * 2;
-
-        KernelTileDescriptor tile_descriptor;
-
-        device_image &mem = image_cache.alloc_tile(device,
-                                                   img->metadata.type,
-                                                   img->params.interpolation,
-                                                   img->params.extension,
-                                                   tile_size_padded,
-                                                   tile_descriptor);
-
-        const size_t pixel_bytes = mem.data_elements * datatype_size(mem.data_type);
-        /* TODO: Handle case where channels > 4. */
-        const size_t x_stride = pixel_bytes;
-        const size_t y_stride = mem.data_width * pixel_bytes;
-        const size_t x_offset = kernel_tile_descriptor_offset(tile_descriptor) * tile_size_padded *
-                                pixel_bytes;
-
-        uint8_t *pixels = mem.data<uint8_t>() + x_offset;
-
-        const bool ok = img->loader->load_pixels_tile(img->metadata,
-                                                      miplevel,
-                                                      x,
-                                                      y,
-                                                      w,
-                                                      h,
-                                                      x_stride,
-                                                      y_stride,
-                                                      KERNEL_IMAGE_TEX_PADDING,
-                                                      img->params.extension,
-                                                      pixels);
-
-        conform_pixels_to_metadata(img,
-                                   pixels,
-                                   w + KERNEL_IMAGE_TEX_PADDING * 2,
-                                   h + KERNEL_IMAGE_TEX_PADDING * 2,
-                                   mem.data_elements,
-                                   mem.data_width);
-
-        tile_descriptors[i] = (ok) ? tile_descriptor : KERNEL_TILE_LOAD_FAILED;
-        scene->dscene.image_texture_tile_descriptors.tag_modified();
-
-        if (ok) {
-          LOG_DEBUG << "Load image tile: " << img->loader->name() << ", mip level " << miplevel
-                    << " (" << x << " " << y << ")";
-        }
-        else {
-          LOG_WARNING << "Failed to load image tile: " << img->loader->name() << ", mip level "
-                      << miplevel << " (" << x << " " << y << ")";
-        }
+        tile_descriptors[i] = device_update_tile_requested(device, scene, img, miplevel, x, y);
       }
     }
   }
@@ -931,6 +977,7 @@ void ImageManager::device_load_image(Device *device,
     tex.tile_descriptor_offset = img->tile_descriptor_offset;
     tex.tile_size_shift = __bsr(img->metadata.tile_size);
     tex.tile_levels = img->tile_descriptor_levels;
+    tex.slot = slot;
   }
   else {
     device_load_image_full(device, scene, slot);
@@ -987,7 +1034,7 @@ void ImageManager::device_update_requested(Device *device, Scene *scene)
     }
   });
 
-  device_copy_image_textures(scene);
+  device_copy_image_textures(device, scene);
 }
 
 void ImageManager::device_update_udims(Device * /*device*/, Scene *scene)
@@ -1057,7 +1104,7 @@ void ImageManager::device_update(Device *device, Scene *scene, Progress &progres
   pool.wait_work();
 
   /* Copy device arrays. */
-  device_copy_image_textures(scene);
+  device_copy_image_textures(device, scene);
 
   need_update_ = false;
 }
@@ -1104,7 +1151,7 @@ void ImageManager::device_load_handles(Device *device,
   pool.wait_work();
 
   /* Copy device arrays. */
-  device_copy_image_textures(scene);
+  device_copy_image_textures(device, scene);
 }
 
 void ImageManager::device_load_builtin(Device *device, Scene *scene, Progress &progress)
@@ -1129,7 +1176,7 @@ void ImageManager::device_load_builtin(Device *device, Scene *scene, Progress &p
 
   pool.wait_work();
 
-  device_copy_image_textures(scene);
+  device_copy_image_textures(device, scene);
 }
 
 void ImageManager::device_free_builtin(Scene *scene)

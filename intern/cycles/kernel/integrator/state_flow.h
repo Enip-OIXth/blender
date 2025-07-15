@@ -183,6 +183,13 @@ ccl_device_forceinline void integrator_path_terminate(IntegratorState state,
   (void)current_kernel;
 }
 
+ccl_device_forceinline void integrator_path_cache_miss(IntegratorState state,
+                                                       const DeviceKernel current_kernel)
+{
+  /* TODO: is this necessary? */
+  INTEGRATOR_STATE_WRITE(state, path, queued_kernel) = current_kernel;
+}
+
 ccl_device_forceinline void integrator_path_next_sorted(KernelGlobals /*kg*/,
                                                         IntegratorState state,
                                                         const DeviceKernel current_kernel,
@@ -222,6 +229,13 @@ ccl_device_forceinline void integrator_shadow_path_terminate(IntegratorShadowSta
 {
   INTEGRATOR_STATE_WRITE(state, shadow_path, queued_kernel) = 0;
   (void)current_kernel;
+}
+
+ccl_device_forceinline void integrator_shadow_path_cache_miss(IntegratorShadowState state,
+                                                              const DeviceKernel current_kernel)
+{
+  /* TODO: is this necessary? */
+  INTEGRATOR_STATE_WRITE(state, shadow_path, queued_kernel) = current_kernel;
 }
 
 #endif

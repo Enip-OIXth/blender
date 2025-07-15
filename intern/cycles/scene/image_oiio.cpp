@@ -10,6 +10,7 @@
 #include "util/path.h"
 #include "util/string.h"
 #include "util/texture.h"
+#include "util/thread.h"
 #include "util/types_base.h"
 #include "util/unique_ptr.h"
 
@@ -584,8 +585,10 @@ static bool oiio_load_pixels_tile(const unique_ptr<ImageInput> &in,
                                           reinterpret_cast<float *>(flip_pixels));
     case IMAGE_DATA_TYPE_NANOVDB_FLOAT:
     case IMAGE_DATA_TYPE_NANOVDB_FLOAT3:
+    case IMAGE_DATA_TYPE_NANOVDB_FLOAT4:
     case IMAGE_DATA_TYPE_NANOVDB_FPN:
     case IMAGE_DATA_TYPE_NANOVDB_FP16:
+    case IMAGE_DATA_TYPE_NANOVDB_EMPTY:
     case IMAGE_DATA_NUM_TYPES:
       return false;
   }
@@ -731,18 +734,24 @@ bool OIIOImageLoader::load_pixels_tile(const ImageMetaData &metadata,
     return false;
   }
   if (!filehandle) {
-    const string &filepath = get_filepath();
-    filehandle = unique_ptr<ImageInput>(ImageInput::create(filepath));
-    if (!filehandle) {
-      filehandle_failed = true;
+    thread_scoped_lock lock(mutex);
+    if (filehandle_failed) {
       return false;
     }
+    if (!filehandle) {
+      const string &filepath = get_filepath();
+      filehandle = unique_ptr<ImageInput>(ImageInput::create(filepath));
+      if (!filehandle) {
+        filehandle_failed = true;
+        return false;
+      }
 
-    ImageSpec spec = ImageSpec();
-    if (!filehandle->open(filepath, spec)) {
-      filehandle_failed = true;
-      filehandle.reset();
-      return false;
+      ImageSpec spec = ImageSpec();
+      if (!filehandle->open(filepath, spec)) {
+        filehandle_failed = true;
+        filehandle.reset();
+        return false;
+      }
     }
   }
 

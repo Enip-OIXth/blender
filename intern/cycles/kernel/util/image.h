@@ -126,13 +126,27 @@ kernel_image_tile_map(KernelGlobals kg,
       image_texture_tile_descriptors, tex.tile_descriptor_offset + tile_offset);
 
   if (!kernel_tile_descriptor_loaded(tile_descriptor)) {
+#ifdef __KERNEL_GPU__
+    /* For GPU, mark load requested and cancel shader execution. */
     if (tile_descriptor == KERNEL_TILE_LOAD_NONE) {
       kernel_data_assign(image_texture_tile_descriptors,
                          tex.tile_descriptor_offset + tile_offset,
                          KERNEL_TILE_LOAD_REQUEST);
     }
-
     return tile_descriptor;
+#else
+    kg->image_load_tile(
+        tex.slot,
+        level,
+        tile_x * (1 << tile_size_shift),
+        tile_y * (1 << tile_size_shift),
+        &kg->image_texture_tile_descriptors.data[tex.tile_descriptor_offset + tile_offset]);
+
+    /* For CPU, load tile immediately. */
+    if (!kernel_tile_descriptor_loaded(tile_descriptor)) {
+      return tile_descriptor;
+    }
+#endif
   }
 
   /* Remap coordinates into tiled image space. */
