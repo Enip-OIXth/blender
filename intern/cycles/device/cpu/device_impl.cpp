@@ -36,6 +36,7 @@
 #include "util/log.h"
 #include "util/progress.h"
 #include "util/task.h"
+#include "util/texture.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -325,9 +326,11 @@ OSLGlobals *CPUDevice::get_cpu_osl_memory()
 #endif
 }
 
-void CPUDevice::set_cpu_texture_cache_func(KernelImageLoadTileFunc func)
+void CPUDevice::set_image_cache_func(KernelImageCacheLoadTileFunc image_cache_load_tile,
+                                     KernelImageCacheUpdateFunc image_cache_update)
 {
-  kernel_globals.image_load_tile = func;
+  kernel_globals.image_cache_load_tile = image_cache_load_tile;
+  image_cache_update_ = image_cache_update;
 }
 
 bool CPUDevice::load_kernels(const uint /*kernel_features*/)

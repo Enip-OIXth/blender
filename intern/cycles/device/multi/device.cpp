@@ -15,6 +15,7 @@
 
 #include "util/list.h"
 #include "util/map.h"
+#include "util/texture.h"
 
 CCL_NAMESPACE_BEGIN
 
@@ -295,10 +296,11 @@ class MultiDevice : public Device {
     return devices.back().device->get_cpu_osl_memory();
   }
 
-  void set_cpu_texture_cache_func(KernelImageLoadTileFunc func) override
+  void set_image_cache_func(KernelImageCacheLoadTileFunc image_cache_load_tile,
+                            KernelImageCacheUpdateFunc image_cache_update) override
   {
     for (SubDevice &sub : devices) {
-      sub.device->set_cpu_texture_cache_func(func);
+      sub.device->set_image_cache_func(image_cache_load_tile, image_cache_update);
     }
   }
 

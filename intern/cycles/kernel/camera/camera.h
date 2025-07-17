@@ -319,6 +319,7 @@ ccl_device_inline Spectrum camera_sample_custom(KernelGlobals kg,
   /* Execute OSL shader to sample position, direction and transmission. */
   packed_float3 P, dPdx, dPdy, D, dDdx, dDdy, throughput;
   throughput = osl_eval_camera(kg, sensor, dSdx, dSdy, rand_lens, P, dPdx, dPdy, D, dDdx, dDdy);
+  /* TODO: handle texture cache miss in camera shader. */
   /* Zero throughput indicates failed sampling. */
   if (is_zero(throughput)) {
     return zero_spectrum();

@@ -142,9 +142,10 @@ kernel_image_tile_map(KernelGlobals kg,
                          tex.tile_descriptor_offset + tile_offset,
                          KERNEL_TILE_LOAD_REQUEST);
     }
+    sd->flag |= SD_CACHE_MISS;
     return tile_descriptor;
 #else
-    kg->image_load_tile(
+    kg->image_cache_load_tile(
         tex.slot,
         level,
         tile_x * (1 << tile_size_shift),

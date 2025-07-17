@@ -151,8 +151,9 @@ ccl_device_inline bool kernel_tile_descriptor_loaded(const KernelTileDescriptor 
 }
 
 #ifndef __KERNEL_GPU__
-using KernelImageLoadTileFunc =
+using KernelImageCacheLoadTileFunc =
     std::function<void(size_t, int, int, int, KernelTileDescriptor *tile_descriptor)>;
+using KernelImageCacheUpdateFunc = std::function<void()>;
 #endif
 
 CCL_NAMESPACE_END

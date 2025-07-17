@@ -135,6 +135,7 @@ class Device {
   }
 
   string error_msg;
+  KernelImageCacheUpdateFunc image_cache_update_;
 
   virtual device_ptr mem_alloc_sub_ptr(device_memory & /*mem*/, size_t /*offset*/, size_t /*size*/)
   {
@@ -205,8 +206,19 @@ class Device {
       vector<ThreadKernelGlobalsCPU> & /*kernel_thread_globals*/);
   /* Get OpenShadingLanguage memory buffer. */
   virtual OSLGlobals *get_cpu_osl_memory();
-  /* Callback to load image tiles on demand. */
-  virtual void set_cpu_texture_cache_func(KernelImageLoadTileFunc /*func*/) {}
+
+  /* Image Cache. */
+  virtual void set_image_cache_func(KernelImageCacheLoadTileFunc /*image_cache_load_tile*/,
+                                    KernelImageCacheUpdateFunc image_cache_update)
+  {
+    image_cache_update_ = image_cache_update;
+  }
+  void update_image_cache()
+  {
+    if (image_cache_update_) {
+      image_cache_update_();
+    }
+  }
 
   /* Acceleration structure building. */
   virtual void build_bvh(BVH *bvh, Progress &progress, bool refit);

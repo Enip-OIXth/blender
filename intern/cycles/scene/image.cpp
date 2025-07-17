@@ -716,7 +716,7 @@ void ImageManager::device_copy_image_textures(Device *device, Scene *scene)
   dscene.image_texture_tile_descriptors.copy_to_device_if_modified();
   dscene.image_texture_udims.copy_to_device_if_modified();
 
-  device->set_cpu_texture_cache_func(
+  device->set_image_cache_func(
       /* This is called by the CPU kernel to immediately load a tile. */
       /* TODO: resizing image_info is not thread safe for CPU rendering, there is
        * a workaround in the CPUDevice constructor. */
@@ -743,7 +743,8 @@ void ImageManager::device_copy_image_textures(Device *device, Scene *scene)
         while (*tile_descriptor == KERNEL_TILE_LOAD_REQUEST) {
           backoff();
         }
-      });
+      },
+      [this, device, scene] { this->device_update_requested(device, scene); });
 }
 
 void ImageManager::device_load_image_full(Device *device, Scene *scene, const size_t slot)

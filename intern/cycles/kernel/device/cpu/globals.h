@@ -52,7 +52,7 @@ struct KernelGlobalsCPU {
 
   KernelData data = {};
 
-  KernelImageLoadTileFunc image_load_tile;
+  KernelImageCacheLoadTileFunc image_cache_load_tile;
 
   ProfilingState profiler;
 };
