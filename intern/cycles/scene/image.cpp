@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "scene/image.h"
-#include "atomic_ops.h"
 #include "scene/colorspace.h"
 #include "scene/image_oiio.h"
 #include "scene/image_vdb.h"
 #include "scene/scene.h"
 #include "scene/stats.h"
 
+#include "util/atomic.h"
 #include "util/color.h"
 #include "util/image.h"
 #include "util/image_impl.h"
@@ -18,6 +18,7 @@
 #include "util/task.h"
 #include "util/texture.h"
 #include "util/types_base.h"
+
 #include <OpenImageIO/thread.h>
 
 CCL_NAMESPACE_BEGIN

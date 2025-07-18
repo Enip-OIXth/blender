@@ -337,8 +337,12 @@ bool PathTraceWorkGPU::update_queue_counter_and_cache()
   }
 
   /* Update image cache if needed. */
+  /* TODO: If the number of kernels with cache misses is small compared to the total
+   * number of queued kernels, we could try asynchronously updating the image cache
+   * while continuing to work on the majority of states? */
   IntegratorQueueCounter *queue_counter = integrator_queue_counter_.data();
   if (queue_counter->cache_miss) {
+    LOG_DEBUG << "Image cache miss in GPU kernel, updating to load requested tiles";
     device_->update_image_cache();
     queue_counter->cache_miss = 0;
     queue_->copy_to_device(integrator_queue_counter_);
