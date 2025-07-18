@@ -70,45 +70,6 @@ static Filter2D *setup_filter(const ImageSpec &dstspec,
   return nullptr;  // couldn't find a matching name
 }
 
-static TypeDesc set_prman_options(TypeDesc out_dataformat, ImageSpec &configspec)
-{
-  // Force separate planar image handling, and also emit prman metadata
-  configspec.attribute("planarconfig", "separate");
-  configspec.attribute("maketx:prman_metadata", 1);
-
-  // 8-bit : 64x64
-  if (out_dataformat == TypeDesc::UINT8 || out_dataformat == TypeDesc::INT8) {
-    configspec.tile_width = 64;
-    configspec.tile_height = 64;
-  }
-
-  // 16-bit : 64x32
-  // Force u16 -> s16
-  // In prman's txmake (last tested in 15.0)
-  // specifying -short creates a signed int representation
-  if (out_dataformat == TypeDesc::UINT16) {
-    out_dataformat = TypeDesc::INT16;
-  }
-
-  if (out_dataformat == TypeDesc::INT16) {
-    configspec.tile_width = 64;
-    configspec.tile_height = 32;
-  }
-
-  // Float: 32x32
-  // In prman's txmake (last tested in 15.0)
-  // specifying -half or -float make 32x32 tile size
-  if (out_dataformat == TypeDesc::DOUBLE) {
-    out_dataformat = TypeDesc::FLOAT;
-  }
-  if (out_dataformat == TypeDesc::HALF || out_dataformat == TypeDesc::FLOAT) {
-    configspec.tile_width = 32;
-    configspec.tile_height = 32;
-  }
-
-  return out_dataformat;
-}
-
 static TypeDesc set_oiio_options(TypeDesc out_dataformat, ImageSpec &configspec)
 {
   // Interleaved channels are faster to read
@@ -346,51 +307,6 @@ static void check_nan_block(const ImageBuf &src, ROI roi, int &found_nonfinite)
       }
     }
   }
-}
-
-inline Imath::V3f latlong_to_dir(float s, float t, bool y_is_up = true)
-{
-  float theta = 2.0f * M_PI * s;
-  float phi = t * M_PI;
-  float sinphi, cosphi;
-  sincos(phi, &sinphi, &cosphi);
-  if (y_is_up) {
-    return Imath::V3f(sinphi * sinf(theta), cosphi, -sinphi * cosf(theta));
-  }
-  return V3f(-sinphi * cosf(theta), -sinphi * sinf(theta), cosphi);
-}
-
-template<class SRCTYPE>
-static bool lightprobe_to_envlatl(
-    ImageBuf &dst, const ImageBuf &src, bool y_is_up, ROI roi = ROI::All(), int nthreads = 0)
-{
-  OIIO_ASSERT(dst.initialized() && src.nchannels() == dst.nchannels());
-  if (!roi.defined()) {
-    roi = get_roi(dst.spec());
-  }
-  roi.chend = std::min(roi.chend, dst.nchannels());
-  OIIO_ASSERT(dst.spec().format == TypeDesc::FLOAT);
-
-  ImageBufAlgo::parallel_image(roi, nthreads, [&](ROI roi) {
-    const ImageSpec &dstspec(dst.spec());
-    int nchannels = dstspec.nchannels;
-
-    span<float> pixel = OIIO_ALLOCA_SPAN(float, nchannels);
-    float dw = dstspec.width, dh = dstspec.height;
-    ImageBuf::ConstIterator<SRCTYPE> srcit(src);
-    for (ImageBuf::Iterator<float> d(dst, roi); !d.done(); ++d) {
-      Imath::V3f V = latlong_to_dir((d.x() + 0.5f) / dw, (dh - 1.0f - d.y() + 0.5f) / dh, y_is_up);
-      float r = M_1_PI * acosf(V[2]) / hypotf(V[0], V[1]);
-      float u = (V[0] * r + 1.0f) * 0.5f;
-      float v = (V[1] * r + 1.0f) * 0.5f;
-      interppixel_NDC<SRCTYPE>(src, u, v, pixel, false, srcit, ImageBuf::WrapClamp);
-      for (int c = roi.chbegin; c < roi.chend; ++c) {
-        d[c] = pixel[c];
-      }
-    }
-  });
-
-  return true;
 }
 
 // compute slopes in pixel space using a Sobel gradient filter
@@ -1122,7 +1038,6 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
     }
   }
 
-  bool shadowmode = (mode == ImageBufAlgo::MakeTxShadow);
   bool envlatlmode = (mode == ImageBufAlgo::MakeTxEnvLatl ||
                       mode == ImageBufAlgo::MakeTxEnvLatlFromLightProbe);
 
@@ -1146,13 +1061,10 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
     out_dataformat = configspec.format;
   }
 
-  // We cannot compute the prman / oiio options until after out_dataformat
+  // We cannot compute the oiio options until after out_dataformat
   // has been determined, as it's required (and can potentially change
   // out_dataformat too!)
-  if (configspec.get_int_attribute("maketx:prman_options")) {
-    out_dataformat = set_prman_options(out_dataformat, configspec);
-  }
-  else if (configspec.get_int_attribute("maketx:oiio_options")) {
+  if (configspec.get_int_attribute("maketx:oiio_options")) {
     out_dataformat = set_oiio_options(out_dataformat, configspec);
   }
 
@@ -1175,29 +1087,6 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
   }
   stat_readtime += alltime.lap();
   STATUS(Strutil::fmt::format("read \"{}\"", src->name()), stat_readtime);
-
-  if (mode == ImageBufAlgo::MakeTxEnvLatlFromLightProbe) {
-    ImageSpec newspec = src->spec();
-    newspec.width = newspec.full_width = src->spec().width;
-    newspec.height = newspec.full_height = src->spec().height / 2;
-    newspec.tile_width = newspec.tile_height = 0;
-    newspec.format = TypeDesc::FLOAT;
-    std::shared_ptr<ImageBuf> latlong(new ImageBuf(newspec));
-    // Now lightprobe holds the original lightprobe, src is a blank
-    // image that will be the unwrapped latlong version of it.
-    bool ok = true;
-    OIIO_DISPATCH_COMMON_TYPES(ok,
-                               "lightprobe_to_envlatl",
-                               lightprobe_to_envlatl,
-                               src->spec().format,
-                               *latlong,
-                               *src,
-                               true);
-    // lightprobe_to_envlatl(*latlong, *src, true);
-    // Carry on with the lat-long environment map from here on out
-    mode = ImageBufAlgo::MakeTxEnvLatl;
-    src = latlong;
-  }
 
   const bool is_bumpslopes = (mode == ImageBufAlgo::MakeTxBumpWithSlopes);
   if (is_bumpslopes) {
@@ -1225,81 +1114,6 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
     // bump_to_bumpslopes(*bumpslopes, *src);
     mode = ImageBufAlgo::MakeTxTexture;
     src = bumpslopes;
-  }
-
-  if (configspec.get_int_attribute("maketx:cdf")) {
-    // Writes Gaussian CDF and Inverse Gaussian CDF as per-channel
-    // metadata. We provide both the inverse transform and forward
-    // transform, so in theory we're free to change the distribution.
-    //
-    // References:
-    //
-    // Brent Burley, On Histogram-Preserving Blending for Randomized
-    // Texture Tiling, Journal of Computer Graphics Techniques (JCGT),
-    // vol. 8, no. 4, 31-53, 2019
-    //
-    // Eric Heitz and Fabrice Neyret, High-Performance By-Example Noise
-    // using a Histogram-Preserving Blending Operator,
-    // https://hal.inria.fr/hal-01824773, Proceedings of the ACM on
-    // Computer Graphics and Interactive Techniques, ACM SIGGRAPH /
-    // Eurographics Symposium on High-Performance Graphics 2018.
-    //
-    // Benedikt Bitterli
-    // https://benedikt-bitterli.me/histogram-tiling/
-
-    const float cdf_sigma = configspec.get_float_attribute("maketx:cdfsigma", 1.0f / 6.0f);
-    const int cdf_bits = configspec.get_int_attribute("maketx:cdfbits", 8);
-    const uint64_t bins = 1 << cdf_bits;
-
-    // Normalization coefficient for the truncated normal distribution
-    const float c_sigma_inv = fast_erf(1.0f / (2.0f * M_SQRT2 * cdf_sigma));
-
-    // If there are channels other than R,G,B,A, we probably shouldn't do
-    // anything to them, unless they are bumpslopes channels.
-    const int channels = is_bumpslopes ? 6 : std::min(4, src->spec().nchannels);
-
-    std::vector<float> invCDF(bins);
-    std::vector<float> CDF(bins);
-    std::vector<imagesize_t> hist;
-
-    for (int i = 0; i < channels; i++) {
-      hist = ImageBufAlgo::histogram(*src, i, bins, 0.0f, 1.0f);
-
-      // Turn the histogram into a non-normalized CDF
-      for (uint64_t j = 1; j < bins; j++) {
-        hist[j] += hist[j - 1];
-      }
-
-      // Store the inverse CDF as a lookup-table which we'll use to
-      // transform the image data to a Gaussian distribution. As
-      // mentioned in Burley [2019] we're combining two steps here when
-      // using the invCDF lookup table: we first "look up" the image
-      // value through its CDF (the normalized histogram) which gives us
-      // a uniformly distributed value, which we're then feeding in to
-      // the Gaussian inverse CDF to transform the uniform distribution
-      // to Gaussian.
-      for (uint64_t j = 0; j < bins; j++) {
-        float u = float(hist[j]) / hist[bins - 1];
-        float g = 0.5f + cdf_sigma * M_SQRT2 * fast_ierf(c_sigma_inv * (2.0f * u - 1.0f));
-        invCDF[j] = std::min(1.0f, std::max(0.0f, g));
-      }
-      configspec.attribute(
-          "invCDF_" + std::to_string(i), TypeDesc(TypeDesc::FLOAT, bins), invCDF.data());
-
-      // Store the forward CDF as a lookup table to transform back to
-      // the original image distribution from a Gaussian distribution.
-      for (uint64_t j = 0; j < bins; j++) {
-        auto upper = std::upper_bound(invCDF.begin(), invCDF.end(), float(j) / (float(bins - 1)));
-        CDF[j] = clamp(float(upper - invCDF.begin()) / float(bins - 1), 0.0f, 1.0f);
-      }
-
-      configspec.attribute(
-          "CDF_" + std::to_string(i), TypeDesc(TypeDesc::FLOAT, bins), CDF.data());
-    }
-
-    configspec["CDF_bits"] = cdf_bits;
-
-    mode = ImageBufAlgo::MakeTxTexture;
   }
 
   double misc_time_2 = alltime.lap();
@@ -1429,22 +1243,6 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
     }
   }
 
-  if (shadowmode) {
-    // Some special checks for shadow maps
-    if (src->spec().nchannels != 1) {
-      errorfmt("shadow maps require 1-channel images, \"{}\" is {} channels",
-               src->name(),
-               src->spec().nchannels);
-      return false;
-    }
-    // Shadow maps only make sense for floating-point data.
-    if (out_dataformat != TypeDesc::FLOAT && out_dataformat != TypeDesc::HALF &&
-        out_dataformat != TypeDesc::DOUBLE)
-    {
-      out_dataformat = TypeDesc::FLOAT;
-    }
-  }
-
   if (configspec.get_int_attribute("maketx:set_full_to_pixels")) {
     // User requested that we treat the image as uncropped or not
     // overscan
@@ -1550,30 +1348,12 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
     dstspec.attribute("Exif:ImageHistory", history);
   }
 
-  bool prman_metadata = configspec.get_int_attribute("maketx:prman_metadata") != 0;
-  if (shadowmode) {
-    dstspec.attribute("textureformat", "Shadow");
-    if (prman_metadata) {
-      dstspec.attribute("PixarTextureFormat", "Shadow");
-    }
-  }
-  else if (envlatlmode) {
+  if (envlatlmode) {
     dstspec.attribute("textureformat", "LatLong Environment");
     configspec.attribute("wrapmodes", "periodic,clamp");
-    if (prman_metadata) {
-      dstspec.attribute("PixarTextureFormat", "LatLong Environment");
-    }
   }
   else {
     dstspec.attribute("textureformat", "Plain Texture");
-    if (prman_metadata) {
-      dstspec.attribute("PixarTextureFormat", "Plain Texture");
-    }
-  }
-  if (prman_metadata) {
-    // Suppress writing of exif directory in the TIFF file to not
-    // confuse the older libtiff that PRMan uses.
-    dstspec.attribute("tiff:write_exif", 0);
   }
 
   // FIXME -- should we allow tile sizes to reduce if the image is
@@ -1704,7 +1484,7 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
   }
 
   // Handle resize to power of two, if called for
-  if (configspec.get_int_attribute("maketx:resize") && !shadowmode) {
+  if (configspec.get_int_attribute("maketx:resize")) {
     dstspec.width = ceil2(dstspec.width);
     dstspec.height = ceil2(dstspec.height);
     dstspec.full_width = dstspec.width;
@@ -1890,26 +1670,8 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
     }
   }
 
-  string_view handed = configspec.get_string_attribute("handed");
-  if (handed == "right" || handed == "left") {
-    if (out->supports("arbitrary_metadata")) {
-      dstspec.attribute("handed", handed);
-    }
-    else {
-      desc += Strutil::fmt::format("{}oiio:handed={}", desc.length() ? " " : "", handed);
-      updatedDesc = true;
-    }
-    if (verbose) {
-      outstream << "  Handed: " << handed << std::endl;
-    }
-  }
-
   if (updatedDesc) {
     dstspec.attribute("ImageDescription", desc);
-  }
-
-  if (configspec.get_float_attribute("fovcot") == 0.0f) {
-    configspec.attribute("fovcot", float(srcspec.full_width) / float(srcspec.full_height));
   }
 
   maketx_merge_spec(dstspec, configspec);
@@ -1925,7 +1687,7 @@ static bool make_texture_impl(ImageBufAlgo::MakeTextureMode mode,
                          tmpfilename,
                          out.get(),
                          out_dataformat,
-                         !shadowmode && !nomipmap,
+                         !nomipmap,
                          filtername,
                          configspec,
                          outstream,
