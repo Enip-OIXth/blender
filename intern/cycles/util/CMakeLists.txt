@@ -15,6 +15,7 @@ set(SRC
   debug.cpp
   ies.cpp
   log.cpp
+  maketx.cpp
   math_cdf.cpp
   md5.cpp
   murmurhash.cpp
@@ -61,6 +62,7 @@ set(SRC_HEADERS
   image_impl.h
   list.h
   log.h
+  maketx.h
   map.h
   math.h
   math_base.h

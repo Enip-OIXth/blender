@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0 */
 
 #include "scene/image_oiio.h"
-
 #include "scene/image.h"
+
 #include "util/image.h"
 #include "util/log.h"
+#include "util/maketx.h"
 #include "util/path.h"
 #include "util/string.h"
 #include "util/texture.h"
@@ -15,7 +16,6 @@
 #include "util/unique_ptr.h"
 
 #include <OpenImageIO/filesystem.h>
-#include <OpenImageIO/imagebufalgo.h>
 
 CCL_NAMESPACE_BEGIN
 
@@ -138,7 +138,7 @@ bool OIIOImageLoader::resolve_texture_cache(const bool auto_generate,
   OIIO::ImageBufAlgo::MakeTextureMode mode = OIIO::ImageBufAlgo::MakeTxTexture;
   std::stringstream outstream;
 
-  if (!OIIO::ImageBufAlgo::make_texture(mode, filepath, tx_filepath, configspec, &outstream)) {
+  if (!make_tx(mode, filepath, tx_filepath, configspec, &outstream)) {
     /* TODO: this will contain non-errors as well. OIIO::geterror() gets just the errors but is not
      * thread safe. */
     LOG_WARNING << "Failed to generate tx file: " << outstream.str();
