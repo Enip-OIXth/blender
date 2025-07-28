@@ -533,6 +533,24 @@ ccl_device_inline int integrator_state_transparent_bounce(ConstIntegratorShadowS
   return INTEGRATOR_STATE(state, shadow_path, transparent_bounce);
 }
 
+ccl_device_inline int integrator_state_portal_bounce(KernelGlobals kg,
+                                                     ConstIntegratorState state,
+                                                     const int /*unused*/)
+{
+  return (kernel_data.kernel_features & KERNEL_FEATURE_NODE_PORTAL) ?
+             INTEGRATOR_STATE(state, path, portal_bounce) :
+             0;
+}
+
+ccl_device_inline int integrator_state_portal_bounce(KernelGlobals kg,
+                                                     ConstIntegratorShadowState state,
+                                                     const int /*unused*/)
+{
+  return (kernel_data.kernel_features & KERNEL_FEATURE_NODE_PORTAL) ?
+             INTEGRATOR_STATE(state, shadow_path, portal_bounce) :
+             0;
+}
+
 ccl_device_inline uint integrator_state_lcg_init(ConstIntegratorState state,
                                                  const uint32_t /*path_flag*/,
                                                  const uint hash)
@@ -559,6 +577,7 @@ ccl_device_inline uint integrator_state_lcg_init(ConstIntegratorBakeState /*stat
 {
   return 0;
 }
+
 #else
 ccl_device_inline int integrator_state_bounce(ConstIntegratorShadowState state,
                                               const uint32_t path_flag)
@@ -596,6 +615,17 @@ ccl_device_inline int integrator_state_transparent_bounce(ConstIntegratorShadowS
                                          INTEGRATOR_STATE(state, path, transparent_bounce);
 }
 
+ccl_device_inline int integrator_state_portal_bounce(KernelGlobals kg,
+                                                     ConstIntegratorShadowState state,
+                                                     const uint32_t path_flag)
+{
+  if ((kernel_data.kernel_features & KERNEL_FEATURE_NODE_PORTAL) == 0) {
+    return 0;
+  }
+  return (path_flag & PATH_RAY_SHADOW) ? INTEGRATOR_STATE(state, shadow_path, portal_bounce) :
+                                         INTEGRATOR_STATE(state, path, portal_bounce);
+}
+
 ccl_device_inline uint integrator_state_lcg_init(ConstIntegratorState state,
                                                  const uint32_t path_flag,
                                                  const uint hash)
@@ -616,6 +646,7 @@ ccl_device_inline uint integrator_state_lcg_init(ConstIntegratorState state,
                         INTEGRATOR_STATE(state, path, sample),
                         hash);
 }
+
 #endif
 
 CCL_NAMESPACE_END
